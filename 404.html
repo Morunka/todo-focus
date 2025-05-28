@@ -1,54 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Перенаправление</title>
-    <script type="module">
-      // Импорт Firebase
-      import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js';
-      import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js';
-
-      // Ваши конфигурационные данные Firebase
-      // ЗАМЕНИТЕ ЭТО СВОИМИ ДАННЫМИ!
-      const firebaseConfig = {
-        apiKey: "ВАШ_API_КЛЮЧ",
-        authDomain: "ВАШ_AUTH_ДОМЕН",
-        projectId: "ВАШ_ID_ПРОЕКТА",
-        storageBucket: "ВАШ_STORAGE_BUCKET",
-        messagingSenderId: "ВАШ_MESSAGING_SENDER_ID",
-        appId: "ВАШ_APP_ID"
-      };
-
-      // Инициализация Firebase
-      const app = initializeApp(firebaseConfig);
-      const auth = getAuth(app);
-
-      onAuthStateChanged(auth, (user) => {
-        if (user) {
-          // Пользователь вошел в систему, перенаправляем на /tasks
-          window.location.replace('/tasks');
-        } else {
-          // Пользователь не вошел в систему, перенаправляем на /login
-          window.location.replace('/login');
-        }
-      });
-
-      // Если Firebase не успеет инициализироваться быстро, можно добавить небольшой таймаут
-      // на случай, если onAuthStateChanged не сработает сразу, но это не идеально.
-      // setTimeout(() => {
-      //   if (!auth.currentUser && !window.location.pathname.includes('/login')) {
-      //     window.location.replace('/login');
-      //   } else if (auth.currentUser && (window.location.pathname.includes('/login') || window.location.pathname === '/')) {
-      //     window.location.replace('/tasks');
-      //   }
-      // }, 2000); // 2 секунды
-    </script>
+    <meta http-equiv="refresh" content="0; URL=/todo-focus/index.html">
   </head>
-  <body>
-    <p>Загрузка...</p>
-    <noscript>
-      <p>Пожалуйста, включите JavaScript для работы приложения.</p>
-    </noscript>
-  </body>
+  <body></body>
 </html>

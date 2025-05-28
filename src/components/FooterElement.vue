@@ -12,12 +12,12 @@
             >
               Firebase</a>, hosted on 
             <a 
-              href="https://fly.io" 
+              href="https://github.com/Morunka/todo-focus" 
               target="_blank" 
               rel="noopener noreferrer"
               class="text-purple-400 hover:text-purple-300 underline transition-colors duration-200"
             >
-              Fly
+              Github pages
             </a>
           </p>
           <p>

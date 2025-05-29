@@ -15,16 +15,21 @@
             <span class="nav-icon">🔐</span>
             <span class="nav-text">Войти</span>
           </router-link>
+
           <div v-else class="user-info-dropdown">
             <button class="user-info-button" @click="toggleDropdown">
               <span class="user-icon">👤</span>
-              <span class="user-name">{{ user.displayName || user.email }}</span>
+              <span class="user-name">{{ user?.displayName || user?.email || 'Пользователь' }}</span>
               <span class="dropdown-arrow" :class="{ 'rotated': dropdownOpen }">▼</span>
             </button>
             <div class="dropdown-menu" v-if="dropdownOpen">
               <button @click="handleLogout" class="dropdown-item">
                 <span class="dropdown-icon">➡️</span>
                 Выйти
+              </button>
+              <button @click="openDeleteConfirmation" class="dropdown-item delete-account-item">
+                <span class="dropdown-icon">🗑️</span>
+                Удалить аккаунт
               </button>
             </div>
           </div>
@@ -33,68 +38,158 @@
     </nav>
 
     <main class="main-content">
-      <transition name="page" mode="out-in">
-        <router-view/>
-      </transition>
+      <router-view v-slot="{ Component }">
+        <transition name="page" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </main>
 
     <FooterElement />
+
+    <ConfirmationModal
+      :isVisible="showDeleteConfirmationModal"
+      title="Удаление аккаунта"
+      message="Вы уверены, что хотите безвозвратно удалить свой аккаунт и все связанные с ним задачи? Это действие необратимо."
+      confirmButtonText="Удалить"
+      cancelButtonText="Отмена"
+      @confirm="handleDeleteAccount"
+      @cancel="closeDeleteConfirmation"
+    />
+
+    <ConfirmationModal
+      :isVisible="showReauthModal"
+      title="Требуется повторная аутентификация"
+      message="Для удаления аккаунта необходимо недавнее подтверждение. Пожалуйста, выйдите из системы и войдите снова, затем попробуйте удалить аккаунт."
+      confirmButtonText="Понятно"
+      :cancelButtonText="Отмена" @confirm="closeReauthModalAndLogout"
+      @cancel="closeReauthModal" />
   </div>
 </template>
 
 <script>
-import { auth, signOut, onAuthStateChanged } from './firebase'; // Убедитесь, что путь к firebase.js правильный
-import FooterElement from './components/FooterElement.vue'; // <--- ИМПОРТ ФУТЕРА
+import { auth, signOut, onAuthStateChanged, deleteUser } from './firebase';
+import { db } from './firebase';
+import { collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+
+import FooterElement from './components/FooterElement.vue';
+import ConfirmationModal from './components/ConfirmationModal.vue';
 
 export default {
-  // <--- РЕГИСТРАЦИЯ КОМПОНЕНТА ФУТЕРА
   components: {
-    FooterElement
+    FooterElement,
+    ConfirmationModal
   },
   data() {
     return {
-      user: null, // Здесь будет храниться объект пользователя Firebase
-      dropdownOpen: false // Для управления видимостью выпадающего меню
+      user: null,
+      dropdownOpen: false,
+      showDeleteConfirmationModal: false,
+      showReauthModal: false // NEW: To control visibility of re-authentication modal
     };
   },
   created() {
-    // Отслеживаем изменение состояния аутентификации
     onAuthStateChanged(auth, (currentUser) => {
       this.user = currentUser;
-      // Если пользователь не залогинен и находится на /tasks, перенаправляем на /login
-      if (!currentUser && this.$route.path === '/tasks') {
-        this.$router.replace('/login'); // Используем replace, чтобы не добавлять в историю
-      }
-      // Если пользователь залогинен и находится на /login, /register, или /reset-password, перенаправляем на /tasks
-      else if (currentUser && (this.$route.path === '/login' || this.$route.path === '/register' || this.$route.path === '/reset-password')) {
-        this.$router.replace('/tasks'); // Используем replace
-      }
-      // Дополнительное условие: если пользователь залогинен и находится на корневом '/',
-      // и маршрутизатор еще не перенаправил на /tasks (что должно произойти благодаря redirect в роутере)
-      else if (currentUser && this.$route.path === '/') {
-        this.$router.replace('/tasks');
-      }
     });
   },
   methods: {
     async handleLogout() {
       try {
         await signOut(auth);
-        this.dropdownOpen = false; // Закрыть дропдаун после выхода
-        // Firebase автоматически перенаправит на '/login' благодаря beforeEach в router/index.js
+        this.dropdownOpen = false;
+        console.log("User successfully logged out. Redirecting to /login.");
+        if (this.$route.path !== '/login') {
+          this.$router.replace('/login');
+        }
       } catch (error) {
-        console.error("Ошибка выхода:", error);
+        console.error("Error logging out:", error);
+        alert(`Ошибка при выходе: ${error.message}`);
       }
     },
     toggleDropdown() {
       this.dropdownOpen = !this.dropdownOpen;
     },
-    // Закрытие дропдауна при клике вне его
     handleClickOutside(event) {
       const userInfoDropdown = this.$el.querySelector('.user-info-dropdown');
-      // Если дропдаун открыт, и клик произошел вне элемента дропдауна
       if (this.dropdownOpen && userInfoDropdown && !userInfoDropdown.contains(event.target)) {
         this.dropdownOpen = false;
+      }
+    },
+
+    /**
+     * Opens the custom confirmation modal for account deletion.
+     */
+    openDeleteConfirmation() {
+      this.dropdownOpen = false; // Close the user dropdown
+      this.showDeleteConfirmationModal = true; // Show the custom modal
+    },
+
+    /**
+     * Closes the custom confirmation modal.
+     */
+    closeDeleteConfirmation() {
+      this.showDeleteConfirmationModal = false;
+    },
+
+    // NEW: Methods for the re-authentication modal
+    openReauthModal() {
+      this.showReauthModal = true;
+    },
+    closeReauthModal() {
+      this.showReauthModal = false;
+    },
+    closeReauthModalAndLogout() {
+      this.closeReauthModal();
+      this.handleLogout(); // Automatically log out after they acknowledge the message
+    },
+
+    /**
+     * Handles the actual account deletion process, triggered by modal confirmation.
+     */
+    async handleDeleteAccount() {
+      this.closeDeleteConfirmation(); // Close the initial deletion modal
+
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        console.error("No user is logged in to delete account.");
+        this.$router.replace('/login');
+        return;
+      }
+
+      try {
+        console.log(`Attempting to delete tasks for user: ${currentUser.uid}`);
+        const tasksRef = collection(db, 'tasks');
+        const userTasksQuery = query(tasksRef, where('userId', '==', currentUser.uid));
+        const querySnapshot = await getDocs(userTasksQuery);
+
+        const deletePromises = [];
+        querySnapshot.forEach((doc) => {
+          deletePromises.push(deleteDoc(doc.ref));
+        });
+
+        await Promise.all(deletePromises);
+        console.log(`Successfully deleted ${querySnapshot.size} tasks for user.`);
+
+        await deleteUser(currentUser);
+
+        console.log("User account successfully deleted. Redirecting to /register.");
+        this.$router.replace('/register');
+
+      } catch (error) {
+        console.error("Error deleting account:", error);
+        if (error.code === 'auth/requires-recent-login') {
+          // Changed: Use the custom modal instead of alert
+          this.openReauthModal();
+        } else if (error.code === 'auth/user-not-found') {
+          // This case might also benefit from a custom modal in a real app,
+          // but for now, we'll keep the alert for simplicity
+          alert("Аккаунт не найден. Возможно, он уже был удален.");
+          this.$router.replace('/login');
+        } else {
+          alert(`Ошибка при удалении аккаунта: ${error.message}`);
+        }
       }
     }
   },
@@ -108,19 +203,19 @@ export default {
 </script>
 
 <style>
-/* Все ваши стили из предыдущего ответа остаются без изменений. */
-/* Новые стили для user-info-dropdown, user-info-button и dropdown-menu,
-   которые вы уже добавили, остаются здесь. */
+/* All your existing styles from the previous answer remain unchanged. */
+/* I'm including the full style block here as requested. */
+
 #app {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  -moz-osx-smoothing: grayscale;
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   margin: 0;
   padding: 0;
-  display: flex; /* <--- ДОБАВЛЕНО для Flexbox */
-  flex-direction: column; /* <--- ДОБАВЛЕНО для Flexbox */
+  display: flex;
+  flex-direction: column;
 }
 
 * {
@@ -168,7 +263,7 @@ body {
 .nav-links {
   display: flex;
   gap: 1rem;
-  align-items: center; /* Выравнивание элементов по центру */
+  align-items: center;
   animation: fadeInRight 0.8s ease-out;
 }
 
@@ -222,11 +317,11 @@ body {
   font-size: 1rem;
 }
 
-/* Новые стили для отображения информации о пользователе и выпадающего меню */
+/* New styles for user info and dropdown menu */
 .user-info-dropdown {
   position: relative;
   display: inline-block;
-  margin-left: 1rem; /* Отступ от других ссылок */
+  margin-left: 1rem;
 }
 
 .user-info-button {
@@ -255,7 +350,7 @@ body {
 }
 
 .user-name {
-  max-width: 150px; /* Ограничиваем ширину имени, чтобы оно не было слишком длинным */
+  max-width: 150px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -272,7 +367,7 @@ body {
 
 .dropdown-menu {
   position: absolute;
-  top: calc(100% + 10px); /* Отступ от кнопки */
+  top: calc(100% + 10px);
   right: 0;
   background: white;
   border-radius: 10px;
@@ -308,9 +403,20 @@ body {
   margin-right: 5px;
 }
 
+/* NEW: Style for the delete account button */
+.dropdown-item.delete-account-item {
+  color: #dc3545; /* Red color to indicate a destructive action */
+  font-weight: 600;
+}
+
+.dropdown-item.delete-account-item:hover {
+  background-color: #f8d7da; /* Light red background on hover */
+  color: #a71d2a; /* Darker red on hover */
+}
+
 
 .main-content {
-  flex-grow: 1; /* <--- ДОБАВЛЕНО для Flexbox */
+  flex-grow: 1;
   animation: fadeInUp 0.8s ease-out 0.2s both;
 }
 
@@ -414,16 +520,16 @@ body {
   }
 
   .user-name {
-    max-width: 80px; /* Уменьшаем для мобильных */
+    max-width: 80px;
   }
 
   .user-info-dropdown {
-    margin-left: 0; /* Убираем отступ на маленьких экранах */
+    margin-left: 0;
     width: 100%;
   }
 
   .dropdown-menu {
-    left: 0; /* Выравниваем по левому краю кнопки */
+    left: 0;
     width: 100%;
     min-width: unset;
   }
@@ -444,9 +550,9 @@ body {
   }
 }
 
-/* Стили футера (добавлены из FooterElement.vue и при необходимости адаптированы) */
+/* Footer styles (copied from FooterElement.vue and adapted as needed) */
 .bg-gray-800 {
-  background-color: #2d3748; /* Пример цвета */
+  background-color: #2d3748;
 }
 
 .text-white {
@@ -454,12 +560,12 @@ body {
 }
 
 .py-6 {
-  padding-top: 1.5rem; /* 24px */
-  padding-bottom: 1.5rem; /* 24px */
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
 }
 
 .mt-auto {
-  margin-top: auto; /* Прикрепляет футер к низу */
+  margin-top: auto;
 }
 
 .container {
@@ -469,8 +575,8 @@ body {
 }
 
 .px-4 {
-  padding-left: 1rem; /* 16px */
-  padding-right: 1rem; /* 16px */
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 .text-center {
@@ -478,11 +584,11 @@ body {
 }
 
 .text-sm {
-  font-size: 0.875rem; /* 14px */
+  font-size: 0.875rem;
 }
 
 .mb-2 {
-  margin-bottom: 0.5rem; /* 8px */
+  margin-bottom: 0.5rem;
 }
 
 .text-blue-400 {
@@ -525,5 +631,64 @@ body {
 
 .duration-200 {
   transition-duration: 200ms;
+}
+
+/* Custom Scrollbar Styles */
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  backdrop-filter: blur(5px);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(135deg, #4c5bc7 0%, #5e3a7e 100%);
+}
+
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #667eea rgba(255, 255, 255, 0.1);
+}
+
+/* Custom scrollbar for dropdown menu */
+.dropdown-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dropdown-menu::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.dropdown-menu::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 3px;
+}
+
+.dropdown-menu::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+/* Footer styles (copied from FooterElement.vue and adapted as needed) */
+.bg-gray-800 {
+  background-color: #2d3748;
 }
 </style>

@@ -2,20 +2,20 @@
   <div class="login-container">
     <div class="login-card">
       <div class="login-header">
-        <div class="login-icon">🔐</div>
-        <h1 class="login-title">Добро пожаловать</h1>
+        <div class="login-icon">🔑</div>
+        <h1 class="login-title">Добро пожаловать!</h1>
         <p class="login-subtitle">Войдите в свою учетную запись</p>
       </div>
-      
+
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="form-group">
           <label class="form-label">Email</label>
           <div class="input-wrapper">
-            <input 
-              v-model="email" 
-              type="email" 
+            <input
+              v-model="email"
+              type="email"
               class="form-input"
-              :class="{ 'error': errors.email, 'success': validFields.email }"
+              :class="{ 'error': errors.email }"
               placeholder="example@email.com"
               @blur="validateEmail"
               @input="clearError('email')"
@@ -27,22 +27,22 @@
             <p v-if="errors.email" class="error-message">{{ errors.email }}</p>
           </transition>
         </div>
-        
+
         <div class="form-group">
           <label class="form-label">Пароль</label>
           <div class="input-wrapper">
-            <input 
-              v-model="password" 
+            <input
+              v-model="password"
               :type="showPassword ? 'text' : 'password'"
               class="form-input"
-              :class="{ 'error': errors.password, 'success': validFields.password }"
+              :class="{ 'error': errors.password }"
               placeholder="Введите пароль"
               @blur="validatePassword"
               @input="clearError('password')"
               required
             />
-            <button 
-              type="button" 
+            <button
+              type="button"
               class="password-toggle"
               @click="showPassword = !showPassword"
             >
@@ -53,18 +53,18 @@
             <p v-if="errors.password" class="error-message">{{ errors.password }}</p>
           </transition>
         </div>
-        
+
         <div class="form-options">
           <label class="checkbox-wrapper">
             <input type="checkbox" v-model="rememberMe" class="checkbox">
             <span class="checkmark"></span>
             <span class="checkbox-text">Запомнить меня</span>
           </label>
-          <router-link to="/reset-password" class="forgot-link">Забыли пароль?</router-link> 
+          <router-link to="/reset-password" class="forgot-password-link">Забыли пароль?</router-link>
         </div>
-        
-        <button 
-          type="submit" 
+
+        <button
+          type="submit"
           class="login-button"
           :class="{ 'loading': isLoading }"
           :disabled="isLoading || !isFormValid"
@@ -76,15 +76,29 @@
           <span v-else class="loading-spinner"></span>
         </button>
       </form>
-      
+
       <div class="login-footer">
         <p class="footer-text">
-          Нет аккаунта? 
+          Нет аккаунта?
           <router-link to="/register" class="register-link">Зарегистрироваться</router-link>
         </p>
-        <p v-if="loginError" class="error-message text-center">{{ loginError }}</p> </div>
+        <p v-if="loginError" class="error-message text-center">{{ loginError }}</p>
+        <p v-if="showResendEmailButton" class="info-message text-center">
+            Пожалуйста, подтвердите свой Email.
+            <button
+                @click="resendVerificationEmail"
+                :disabled="isResendLoading || resendCooldown > 0"
+                class="resend-email-button"
+            >
+                <span v-if="isResendLoading" class="small-loading-spinner"></span>
+                <span v-else-if="resendCooldown > 0">Повторно через {{ resendCooldown }}с</span>
+                <span v-else>Отправить повторно</span>
+            </button>
+        </p>
+        <p v-if="resendSuccessMessage" class="success-message text-center">{{ resendSuccessMessage }}</p>
+      </div>
     </div>
-    
+
     <div class="bg-decoration">
       <div class="floating-shape shape-1"></div>
       <div class="floating-shape shape-2"></div>
@@ -93,121 +107,192 @@
   </div>
 </template>
 
-<script>
-// Импортируем auth и signInWithEmailAndPassword из вашего firebase.js
-import { auth, signInWithEmailAndPassword } from "../firebase"; // <-- ОБНОВЛЕНО
+<script setup>
+import { ref, computed, onBeforeUnmount } from 'vue';
+import { useRouter } from 'vue-router';
+import {
+  auth,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  setPersistence,
+  browserSessionPersistence,
+  browserLocalPersistence,
+  signOut,
+} from '../firebase';
 
-export default {
-  name: 'LoginView',
-  data() {
-    return {
-      email: '',
-      password: '',
-      showPassword: false,
-      rememberMe: false,
-      isLoading: false,
-      errors: {},
-      validFields: {},
-      loginError: '' // <-- Добавлено для отображения ошибок входа
-    };
-  },
-  computed: {
-    isFormValid() {
-      // Форма считается валидной, если все поля заполнены и нет ошибок валидации
-      // Убедитесь, что email и password не пустые, и что нет ошибок в объекте errors
-      return this.email.trim() !== '' && 
-             this.password.trim() !== '' && 
-             !this.errors.email && 
-             !this.errors.password;
-    }
-  },
-  methods: {
-    validateEmail() {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!this.email) {
-        this.errors.email = 'Email обязателен';
-        this.validFields.email = false;
-      } else if (!emailRegex.test(this.email)) {
-        this.errors.email = 'Неверный формат email';
-        this.validFields.email = false;
-      } else {
-        // Очищаем ошибку, если email валиден
-        if (this.errors.email) {
-            delete this.errors.email;
-        }
-        this.validFields.email = true;
-      }
-    },
-    validatePassword() {
-      if (!this.password) {
-        this.errors.password = 'Пароль обязателен';
-        this.validFields.password = false;
-      } else if (this.password.length < 6) {
-        this.errors.password = 'Пароль должен быть не менее 6 символов';
-        this.validFields.password = false;
-      } else {
-        // Очищаем ошибку, если пароль валиден
-        if (this.errors.password) {
-            delete this.errors.password;
-        }
-        this.validFields.password = true;
-      }
-    },
-    clearError(field) {
-      if (this.errors[field]) {
-        delete this.errors[field];
-      }
-      this.loginError = ''; // Также очищаем общую ошибку входа
-    },
-    async handleLogin() {
-      this.validateEmail();
-      this.validatePassword();
-      this.loginError = ''; // Очищаем предыдущую ошибку входа
+const router = useRouter();
 
-      // Если форма невалидна после валидации, прекращаем выполнение
-      if (!this.isFormValid) {
-        return;
-      }
-      
-      this.isLoading = true; // Начинаем загрузку
-      
-      try {
-        // Убираем simulate API call, теперь используем Firebase Auth
-        // await new Promise(resolve => setTimeout(resolve, 2000)); // УДАЛИТЬ ЭТУ СТРОКУ
+// Reactive state
+const email = ref('');
+const password = ref('');
+const showPassword = ref(false);
+const rememberMe = ref(true);
+const isLoading = ref(false);
+const isResendLoading = ref(false);
+const errors = ref({});
+const loginError = ref('');
+const showResendEmailButton = ref(false);
+const resendCooldown = ref(0);
+let resendCooldownInterval = null;
+const resendSuccessMessage = ref('');
 
-        await signInWithEmailAndPassword(auth, this.email, this.password);
-        
-        // Вход успешен, перенаправляем на страницу задач
-        // Vue Router автоматически обновит состояние аутентификации
-        this.$router.push('/');
-        
-      } catch (error) {
-        console.error('Login error:', error.code, error.message);
-        // Обработка ошибок Firebase аутентификации
-        switch (error.code) {
-          case 'auth/user-not-found':
-          case 'auth/wrong-password':
-            this.loginError = 'Неверный email или пароль.';
-            break;
-          case 'auth/invalid-email':
-            this.loginError = 'Неверный формат email.';
-            break;
-          case 'auth/user-disabled':
-            this.loginError = 'Ваша учетная запись заблокирована.';
-            break;
-          default:
-            this.loginError = 'Ошибка входа. Попробуйте снова.';
-            break;
-        }
-      } finally {
-        this.isLoading = false; // Завершаем загрузку независимо от результата
-      }
-    }
+// NEW: Store the user object if verification is needed
+const unverifiedUser = ref(null);
+
+// Computed properties
+const isFormValid = computed(() => {
+  return email.value.trim() !== '' &&
+         password.value.trim() !== '' &&
+         !errors.value.email &&
+         !errors.value.password;
+});
+
+// Methods
+const validateEmail = () => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email.value) {
+    errors.value.email = 'Email обязателен';
+  } else if (!emailRegex.test(email.value)) {
+    errors.value.email = 'Неверный формат email';
+  } else {
+    delete errors.value.email;
   }
 };
+
+const validatePassword = () => {
+  if (!password.value) {
+    errors.value.password = 'Пароль обязателен';
+  } else if (password.value.length < 6) {
+    errors.value.password = 'Пароль должен быть не менее 6 символов';
+  } else {
+    delete errors.value.password;
+  }
+};
+
+const clearError = (field) => {
+  delete errors.value[field];
+  loginError.value = '';
+  showResendEmailButton.value = false;
+  resendSuccessMessage.value = '';
+  unverifiedUser.value = null; // Clear unverified user on new input/error clear
+};
+
+const startCoolDown = (duration) => {
+  resendCooldown.value = duration;
+  if (resendCooldownInterval) {
+    clearInterval(resendCooldownInterval);
+  }
+  resendCooldownInterval = setInterval(() => {
+    if (resendCooldown.value > 0) {
+      resendCooldown.value--;
+    } else {
+      clearInterval(resendCooldownInterval);
+      resendCooldownInterval = null;
+    }
+  }, 1000);
+};
+
+const handleLogin = async () => {
+  validateEmail();
+  validatePassword();
+  loginError.value = '';
+  showResendEmailButton.value = false;
+  resendSuccessMessage.value = '';
+  unverifiedUser.value = null; // Reset unverified user at the start of login attempt
+
+  if (!isFormValid.value) {
+    return;
+  }
+
+  isLoading.value = true;
+
+  try {
+    await setPersistence(
+      auth,
+      rememberMe.value ? browserLocalPersistence : browserSessionPersistence
+    );
+
+    const userCredential = await signInWithEmailAndPassword(auth, email.value, password.value);
+    const user = userCredential.user;
+
+    if (!user.emailVerified) {
+      // Store the user object before signing them out
+      unverifiedUser.value = user;
+
+      await signOut(auth); // Sign out the user immediately
+
+      loginError.value = 'Ваш Email не подтвержден. Пожалуйста, проверьте свою почту (и папку "Спам"!) и подтвердите аккаунт, прежде чем войти.';
+      showResendEmailButton.value = true;
+      startCoolDown(60);
+    } else {
+      router.push('/tasks');
+    }
+  } catch (error) {
+    console.error('Login error:', error.code, error.message);
+    switch (error.code) {
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential':
+        loginError.value = 'Неверный Email или пароль.';
+        break;
+      case 'auth/invalid-email':
+        loginError.value = 'Неверный формат Email. Проверьте правильность ввода.';
+        break;
+      case 'auth/too-many-requests':
+        loginError.value = 'Слишком много неудачных попыток входа. Попробуйте позже.';
+        showResendEmailButton.value = true;
+        startCoolDown(60);
+        break;
+      case 'auth/network-request-failed':
+        loginError.value = 'Ошибка сети. Проверьте ваше интернет-соединение.';
+        break;
+      default:
+        loginError.value = 'Произошла ошибка при входе. Пожалуйста, попробуйте снова. ' + error.message;
+        break;
+    }
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const resendVerificationEmail = async () => {
+  // Use the stored unverifiedUser first, as it's more reliable after a recent signOut
+  const userToVerify = unverifiedUser.value || auth.currentUser;
+
+  if (userToVerify) {
+    isResendLoading.value = true;
+    resendSuccessMessage.value = '';
+    loginError.value = ''; // Clear previous login errors
+
+    try {
+        await sendEmailVerification(userToVerify); // Use userToVerify here
+        resendSuccessMessage.value = 'Письмо для подтверждения отправлено повторно! Проверьте свой Email.';
+        startCoolDown(60); // Restart cooldown after successful send
+    } catch (error) {
+        console.error("Ошибка при повторной отправке письма:", error);
+        if (error.code === 'auth/too-many-requests') {
+          loginError.value = 'Слишком много запросов на отправку письма. Пожалуйста, подождите.';
+          startCoolDown(60);
+        } else {
+          loginError.value = 'Не удалось отправить письмо повторно. Пожалуйста, попробуйте позже.';
+        }
+    } finally {
+        isResendLoading.value = false;
+    }
+  }
+  // No else block. If userToVerify is null, nothing happens.
+};
+
+onBeforeUnmount(() => {
+  if (resendCooldownInterval) {
+    clearInterval(resendCooldownInterval);
+    resendCooldownInterval = null;
+  }
+});
 </script>
 
 <style scoped>
+/* Your existing styles remain unchanged */
 .login-container {
   min-height: 100vh;
   display: flex;
@@ -300,11 +385,6 @@ export default {
   box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.1);
 }
 
-.form-input.success {
-  border-color: #4caf50;
-  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
-}
-
 .input-icon {
   position: absolute;
   right: 1rem;
@@ -340,6 +420,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  font-size: 0.9rem;
 }
 
 .checkbox-wrapper {
@@ -347,6 +428,8 @@ export default {
   align-items: center;
   cursor: pointer;
   user-select: none;
+  gap: 0.5rem;
+  color: #666;
 }
 
 .checkbox {
@@ -358,11 +441,11 @@ export default {
   height: 20px;
   border: 2px solid #ddd;
   border-radius: 4px;
-  margin-right: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
 .checkbox:checked + .checkmark {
@@ -377,20 +460,16 @@ export default {
   font-size: 0.8rem;
 }
 
-.checkbox-text {
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.forgot-link {
+.forgot-password-link {
   color: #667eea;
   text-decoration: none;
-  font-size: 0.9rem;
+  font-weight: 600;
   transition: color 0.3s ease;
 }
 
-.forgot-link:hover {
+.forgot-password-link:hover {
   color: #5a6fd8;
+  text-decoration: underline;
 }
 
 .login-button {
@@ -406,6 +485,9 @@ export default {
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .login-button:hover:not(:disabled) {
@@ -432,7 +514,7 @@ export default {
 }
 
 .login-button:hover .button-icon {
-  transform: translateX(4px);
+  transform: scale(1.2);
 }
 
 .loading-spinner {
@@ -442,6 +524,24 @@ export default {
   border-top: 2px solid white;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+  flex-shrink: 0;
+  flex-grow: 0;
+  min-width: 20px;
+  min-height: 20px;
+}
+
+.small-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+  flex-grow: 0;
+  min-width: 16px;
+  min-height: 16px;
+  margin-right: 5px;
 }
 
 .login-footer {
@@ -466,7 +566,6 @@ export default {
   color: #5a6fd8;
 }
 
-/* Background decoration */
 .bg-decoration {
   position: absolute;
   top: 0;
@@ -508,7 +607,6 @@ export default {
   animation-delay: 4s;
 }
 
-/* Animations */
 @keyframes slideInUp {
   from {
     opacity: 0;
@@ -571,7 +669,6 @@ export default {
   }
 }
 
-/* Transition animations */
 .error-enter-active {
   transition: all 0.3s ease-out;
 }
@@ -590,31 +687,105 @@ export default {
   transform: translateY(-10px);
 }
 
-/* Добавьте стиль для централизации текста ошибки в футере, если необходимо */
 .login-footer .error-message.text-center {
-    text-align: center;
-    margin-top: 1rem;
-    color: #f44336; /* Убедитесь, что цвет заметен на вашем фоне */
+  text-align: center;
+  margin-top: 1rem;
+  color: #f44336;
 }
 
-/* Responsive design */
+.info-message {
+  color: #3f51b5;
+  font-size: 0.95rem;
+  margin-top: 1.5rem;
+  font-weight: 500;
+  line-height: 1.5;
+  background-color: rgba(63, 81, 181, 0.1);
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(63, 81, 181, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.success-message {
+  color: #4caf50;
+  font-size: 0.95rem;
+  margin-top: 1.5rem;
+  font-weight: 500;
+  line-height: 1.5;
+  background-color: rgba(76, 175, 80, 0.1);
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.resend-email-button {
+  background-color: #667eea;
+  color: white;
+  border: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resend-email-button:hover {
+  background-color: #5a6fd8;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(102, 126, 234, 0.3);
+}
+
+.resend-email-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+  box-shadow: none;
+}
+
 @media (max-width: 768px) {
   .login-container {
     padding: 1rem;
   }
-  
+
   .login-card {
     padding: 2rem;
   }
-  
+
   .login-title {
     font-size: 1.5rem;
   }
-  
+
   .form-options {
     flex-direction: column;
-    gap: 1rem;
     align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .checkbox-wrapper {
+    align-items: flex-start;
+  }
+  .info-message, .success-message {
+    font-size: 0.9rem;
+    padding: 0.8rem;
+  }
+  .resend-email-button {
+    font-size: 0.85rem;
+    padding: 0.6rem 1rem;
   }
 }
 </style>

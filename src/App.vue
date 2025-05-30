@@ -1,55 +1,42 @@
 <template>
   <div id="app">
-    <header>
-      <title>{{ pageTitle }}</title>
-      <meta name="description" :content="pageDescription" />
-      <meta name="keywords" content="todo, задачи, планировщик, продуктивность, фокус, GTD" />
-      <meta name="author" content="Morunka" />
-      <meta property="og:title" :content="pageTitle" />
-      <meta property="og:description" :content="pageDescription" />
-      <meta property="og:type" content="website" />
-      <meta property="og:url" :content="currentUrl" />
-      <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" :content="pageTitle" />
-      <meta name="twitter:description" :content="pageDescription" />
-      <link rel="canonical" :href="currentUrl" />
-      <nav class="navbar">
-        <div class="nav-container">
-          <div class="nav-brand">
-            <h2 class="brand-title">ToDo список «Фокус»</h2>
-          </div>
-          <div class="nav-links">
-            <router-link to="/tasks" class="nav-link" v-if="user">
-              <span class="nav-icon">📋</span>
-              <span class="nav-text">Задачи</span>
-            </router-link>
+    <title>{{ pageTitle }}</title>
+    <nav class="navbar">
+      <div class="nav-container">
+        <div class="nav-brand">
+          <h2 class="brand-title">ToDo список «Фокус»</h2>
+        </div>
+        <div class="nav-links">
+          <router-link to="/tasks" class="nav-link" v-if="user">
+            <span class="nav-icon">📋</span>
+            <span class="nav-text">Задачи</span>
+          </router-link>
 
-            <router-link to="/login" class="nav-link" v-if="!user">
-              <span class="nav-icon">🔐</span>
-              <span class="nav-text">Войти</span>
-            </router-link>
+          <router-link to="/login" class="nav-link" v-if="!user">
+            <span class="nav-icon">🔐</span>
+            <span class="nav-text">Войти</span>
+          </router-link>
 
-            <div v-else class="user-info-dropdown">
-              <button class="user-info-button" @click="toggleDropdown">
-                <span class="user-icon">👤</span>
-                <span class="user-name">{{ user?.displayName || user?.email || 'Пользователь' }}</span>
-                <span class="dropdown-arrow" :class="{ 'rotated': dropdownOpen }">▼</span>
+          <div v-else class="user-info-dropdown">
+            <button class="user-info-button" @click="toggleDropdown">
+              <span class="user-icon">👤</span>
+              <span class="user-name">{{ user?.displayName || user?.email || 'Пользователь' }}</span>
+              <span class="dropdown-arrow" :class="{ 'rotated': dropdownOpen }">▼</span>
+            </button>
+            <div class="dropdown-menu" v-if="dropdownOpen">
+              <button @click="handleLogout" class="dropdown-item">
+                <span class="dropdown-icon">➡️</span>
+                Выйти
               </button>
-              <div class="dropdown-menu" v-if="dropdownOpen">
-                <button @click="handleLogout" class="dropdown-item">
-                  <span class="dropdown-icon">➡️</span>
-                  Выйти
-                </button>
-                <button @click="openDeleteConfirmation" class="dropdown-item delete-account-item">
-                  <span class="dropdown-icon">🗑️</span>
-                  Удалить аккаунт
-                </button>
-              </div>
+              <button @click="openDeleteConfirmation" class="dropdown-item delete-account-item">
+                <span class="dropdown-icon">🗑️</span>
+                Удалить аккаунт
+              </button>
             </div>
           </div>
         </div>
-      </nav>
-    </header>
+      </div>
+    </nav>
 
     <main class="main-content">
       <router-view v-slot="{ Component }">

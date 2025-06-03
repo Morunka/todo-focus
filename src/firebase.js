@@ -24,11 +24,13 @@ import {
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
-  deleteUser // Import deleteUser for account deletion
+  deleteUser // ADDED BACK: Import deleteUser for client-side deletion
 } from "firebase/auth";
 
 // Import App Check modules
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+
+// REMOVED: import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 
 // Your web app's Firebase configuration - NOW USING ENVIRONMENT VARIABLES
 const firebaseConfig = {
@@ -47,10 +49,15 @@ const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app); // Ensure analytics is properly initialized
 const db = getFirestore(app); // Initialize Firestore instance
 const auth = getAuth(app);
+// REMOVED: const functions = getFunctions(app);
+
+// REMOVED: connect to Functions emulator if in development
+// if (process.env.NODE_ENV === 'development') {
+//   connectFunctionsEmulator(functions, 'localhost', 5001);
+//   console.log("Connected to Firebase Functions emulator on localhost:5001");
+// }
 
 // Initialize App Check (it will pick up self.FIREBASE_APPCHECK_DEBUG_TOKEN if set)
-// This should be initialized regardless of NODE_ENV if you intend to use it in both dev/prod
-// but the reCAPTCHA provider itself is production-only.
 initializeAppCheck(app, {
   provider: new ReCaptchaV3Provider(process.env.VUE_APP_RECAPTCHA_SITE_KEY),
   isTokenAutoRefreshEnabled: true
@@ -58,7 +65,6 @@ initializeAppCheck(app, {
 
 
 // Set Firebase Authentication state persistence to local storage
-// This will keep the user logged in even after closing and reopening the browser
 setPersistence(auth, browserLocalPersistence)
   .then(() => {
     console.log("Firebase Auth persistence set to 'local'.");
@@ -72,6 +78,7 @@ setPersistence(auth, browserLocalPersistence)
 export {
   db, // Export db
   auth,
+  // REMOVED: functions, // Functions are no longer exported
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -83,5 +90,5 @@ export {
   setPersistence,
   browserSessionPersistence,
   browserLocalPersistence,
-  deleteUser // Export deleteUser
+  deleteUser // ADDED BACK: Export deleteUser
 };

@@ -18,7 +18,6 @@
               :class="{ 'error': errors.email, 'success': validFields.email }"
               placeholder="example@email.com"
               @blur="validateEmail"
-              @input="clearError('email')"
               required
             />
             <span class="input-icon">📧</span>
@@ -38,7 +37,6 @@
               :class="{ 'error': errors.password, 'success': validFields.password }"
               placeholder="Введите пароль"
               @blur="validatePassword"
-              @input="clearError('password')"
               required
             />
             <button
@@ -116,7 +114,7 @@
           Уже есть аккаунт?
           <router-link to="/login" class="login-link">Войти</router-link>
         </p>
-        </div>
+      </div>
     </div>
 
     <div class="bg-decoration">
@@ -130,8 +128,11 @@
       title="Регистрация успешна!"
       message="Ваш аккаунт был успешно создан. Пожалуйста, проверьте свой Email (и папку 'Спам'!) для подтверждения. Нажмите 'Далее', чтобы перейти к входу."
       confirmButtonText="Далее"
-      :cancelButtonText="null" :showCloseButton="false" @confirm="handleSuccessConfirm"
-      @cancel="handleSuccessCancel" />
+      :cancelButtonText="null"
+      :showCloseButton="false"
+      @confirm="handleSuccessConfirm"
+      @cancel="handleSuccessCancel"
+    />
 
     <ConfirmationModal
       :isVisible="showErrorModal"
@@ -147,12 +148,19 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, reactive, computed, defineEmits } from 'vue'; // Added reactive and defineEmits
 import { useRouter } from 'vue-router';
-import { auth, createUserWithEmailAndPassword, sendEmailVerification, signOut } from '../firebase';
-import ConfirmationModal from '../components/ConfirmationModal.vue'; // Import the modal component
+import {
+  auth,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
+  updateProfile // Added updateProfile
+} from '../firebase'; // Removed `functions` and `httpsCallable`
+import ConfirmationModal from '../components/ConfirmationModal.vue';
 
 const router = useRouter();
+const emit = defineEmits(['show-notification']); // For global notifications
 
 // Reactive state
 const email = ref('');
@@ -162,23 +170,31 @@ const showPassword = ref(false);
 const showConfirmPassword = ref(false);
 const agreeToTerms = ref(false);
 const isLoading = ref(false);
-const errors = ref({});
-const validFields = ref({});
+
+// Use reactive for errors and validFields for better consistency
+const errors = reactive({
+  email: '',
+  password: '',
+  confirmPassword: ''
+});
+const validFields = reactive({
+  email: false,
+  password: false,
+  confirmPassword: false
+});
 
 // Modal specific state
 const showSuccessModal = ref(false);
+// const successModalMessage = ref(''); // No longer directly used as message is hardcoded
 const showErrorModal = ref(false);
-const registerErrorMessage = ref(''); // Use a distinct variable for the error modal message
+const registerErrorMessage = ref('');
 
-// Computed properties (remain largely the same)
+// Computed properties
 const isFormValid = computed(() => {
-  return email.value.trim() !== '' &&
-         password.value.trim() !== '' &&
-         confirmPassword.value.trim() !== '' &&
-         agreeToTerms.value &&
-         !errors.value.email &&
-         !errors.value.password &&
-         !errors.value.confirmPassword;
+  return validFields.email &&
+         validFields.password &&
+         validFields.confirmPassword &&
+         agreeToTerms.value; // Ensure all fields are valid AND terms agreed
 });
 
 const passwordStrength = computed(() => {
@@ -193,13 +209,12 @@ const passwordStrength = computed(() => {
 
   return strength;
 });
-
 const passwordStrengthClass = computed(() => {
+  if (password.value === '') return ''; // No class if password is empty
   if (passwordStrength.value <= 2) return 'weak';
   if (passwordStrength.value <= 3) return 'medium';
   return 'strong';
 });
-
 const passwordStrengthText = computed(() => {
   if (password.value === '') return '';
   if (passwordStrength.value <= 2) return 'Слабый пароль';
@@ -207,87 +222,79 @@ const passwordStrengthText = computed(() => {
   return 'Сильный пароль';
 });
 
-// Methods (updated for modal interaction)
+// Methods
 const validateEmail = () => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email.value) {
-    errors.value.email = 'Email обязателен';
-    validFields.value.email = false;
+  if (!email.value.trim()) { // Use .trim()
+    errors.email = 'Email обязателен';
+    validFields.email = false;
   } else if (!emailRegex.test(email.value)) {
-    errors.value.email = 'Неверный формат email';
-    validFields.value.email = false;
+    errors.email = 'Неверный формат email';
+    validFields.email = false;
   } else {
-    delete errors.value.email;
-    validFields.value.email = true;
+    errors.email = '';
+    validFields.email = true;
   }
 };
-
 const validatePassword = () => {
-  if (!password.value) {
-    errors.value.password = 'Пароль обязателен';
-    validFields.value.password = false;
+  if (!password.value) { // Don't trim password
+    errors.password = 'Пароль обязателен';
+    validFields.password = false;
   } else if (password.value.length < 6) {
-    errors.value.password = 'Пароль должен быть не менее 6 символов';
-    validFields.value.password = false;
+    errors.password = 'Пароль должен быть не менее 6 символов';
+    validFields.password = false;
   } else {
-    delete errors.value.password;
-    validFields.value.password = true;
+    errors.password = '';
+    validFields.password = true;
   }
 
+  // Re-validate confirm password if password changes
   if (confirmPassword.value) {
     validateConfirmPassword();
   }
 };
-
 const validateConfirmPassword = () => {
   if (!confirmPassword.value) {
-    errors.value.confirmPassword = 'Подтверждение пароля обязательно';
-    validFields.value.confirmPassword = false;
+    errors.confirmPassword = 'Подтверждение пароля обязательно';
+    validFields.confirmPassword = false;
   } else if (password.value !== confirmPassword.value) {
-    errors.value.confirmPassword = 'Пароли не совпадают';
-    validFields.value.confirmPassword = false;
+    errors.confirmPassword = 'Пароли не совпадают';
+    validFields.confirmPassword = false;
   } else {
-    delete errors.value.confirmPassword;
-    validFields.value.confirmPassword = true;
+    errors.confirmPassword = '';
+    validFields.confirmPassword = true;
   }
 };
 
 const clearError = (field) => {
-  delete errors.value[field];
-  // No longer directly manipulating registerError/successMessage from here
+  errors[field] = '';
+  // No need to set validFields to false here, validation logic will handle it on blur/submit
 };
 
-// Modals control methods
-const openSuccessModal = () => {
-  showSuccessModal.value = true;
-};
-
+// Modals control methods (for success/error popups)
 const handleSuccessConfirm = () => {
   showSuccessModal.value = false;
-  router.push('/login'); // Redirect only when "Далее" is clicked
+  router.push('/login'); // Redirect to login after successful registration
 };
-
 const handleSuccessCancel = () => {
-  // If the user clicks outside or the 'X' button (if it were visible),
-  // they still just close the modal without redirection.
-  showSuccessModal.value = false;
+  showSuccessModal.value = false; // Allows user to close without redirect if desired
 };
 
 const openErrorModal = (message) => {
   registerErrorMessage.value = message;
   showErrorModal.value = true;
 };
-
 const closeErrorModal = () => {
   showErrorModal.value = false;
   registerErrorMessage.value = '';
 };
 
-
 const handleRegister = async () => {
-  // Clear any previous error/success messages
+  // Clear any previous error messages
   registerErrorMessage.value = '';
-  // successMessage.value = ''; // This is now handled by modal visibility
+  errors.email = '';
+  errors.password = '';
+  errors.confirmPassword = '';
 
   // Client-side validation before attempting Firebase registration
   validateEmail();
@@ -295,65 +302,94 @@ const handleRegister = async () => {
   validateConfirmPassword();
 
   if (!agreeToTerms.value) {
-    // A specific error for terms agreement
-    openErrorModal('Вы должны согласиться с условиями использования.');
-    return; // Stop function execution
+    openErrorModal('Вы должны согласиться с условиями использования и политикой конфиденциальности.');
+    return;
   }
 
-  // Check if there are any validation errors
-  if (Object.keys(errors.value).length > 0) {
-    return; // Stop if client-side validation failed
+  // Check if any errors exist in the reactive `errors` object
+  const hasFormErrors = Object.values(errors).some(error => error !== '');
+  if (hasFormErrors || !isFormValid.value) {
+    emit('show-notification', 'Пожалуйста, исправьте ошибки в форме.', 'error', 3000);
+    return; // Stop if there are validation errors
   }
 
-  isLoading.value = true;
-
+  isLoading.value = true; // Set loading state to true
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email.value, password.value);
     const user = userCredential.user;
 
+    // IMPORTANT: Null check the user object
+    if (!user) {
+      throw new Error("User object is undefined after successful registration (unexpected).");
+    }
+
+    // Update user profile (e.g., set display name) - Optional but good practice
+    await updateProfile(user, {
+      displayName: email.value.split('@')[0] // Sets display name to the part before @ in email
+    });
+    console.log("User profile updated.");
+
+    // Send email verification
     await sendEmailVerification(user);
-    await signOut(auth); // Sign out the user immediately after registration and verification email sent
+    console.log("Email verification sent to:", user.email);
+
+    // Sign out the user immediately after registration and email sent
+    await signOut(auth);
+    console.log("User signed out.");
 
     // Clear form fields
     email.value = '';
     password.value = '';
     confirmPassword.value = '';
     agreeToTerms.value = false;
-    errors.value = {};
-    validFields.value = {};
+    // Reset validation states
+    validFields.email = false;
+    validFields.password = false;
+    validFields.confirmPassword = false;
 
-    // Show the success modal instead of direct message and timeout redirect
-    openSuccessModal();
+    // Show success modal
+    showSuccessModal.value = true; // Use the existing modal
+    // No dynamic message needed, it's hardcoded in the modal template
 
   } catch (error) {
     console.error('Registration error:', error.code, error.message);
     let message = '';
     switch (error.code) {
       case 'auth/email-already-in-use':
-        message = 'Этот Email уже зарегистрирован. Пожалуйста, войдите или восстановите пароль.';
+        message = 'Этот Email уже зарегистрирован. Пожалуйста, войдите или используйте другой Email.';
+        errors.email = message; // Display specific error below input
         break;
       case 'auth/invalid-email':
         message = 'Неверный формат Email. Проверьте правильность ввода.';
+        errors.email = message;
         break;
       case 'auth/weak-password':
-        message = 'Пароль слишком слабый. Используйте не менее 6 символов.'; // Removed specific requirements as they are in validatePassword
+        message = 'Пароль слишком слабый. Используйте не менее 6 символов, включая буквы, цифры и спецсимволы.';
+        errors.password = message;
         break;
       case 'auth/network-request-failed':
         message = 'Ошибка сети. Проверьте ваше интернет-соединение.';
         break;
+      case 'auth/operation-not-allowed':
+        message = 'Регистрация по Email/паролю отключена. Свяжитесь с администратором.';
+        break;
       default:
-        message = 'Произошла ошибка при регистрации. Пожалуйста, попробуйте снова. ' + error.message;
+        // Generic error, use error.message directly
+        message = `Произошла ошибка при регистрации: ${error.message}. Пожалуйста, попробуйте снова.`;
         break;
     }
-    openErrorModal(message); // Show the error modal
+    // Show error modal (or global notification)
+    openErrorModal(message); // Using existing error modal
+    // Alternatively, if App.vue has a global notification system:
+    // emit('show-notification', message, 'error', 5000);
   } finally {
-    isLoading.value = false;
+    isLoading.value = false; // Always reset loading state
   }
 };
 </script>
 
 <style scoped>
-/* All your existing styles here. No changes needed to the CSS. */
+/* All your existing styles here. No changes needed to the CSS unless specified below. */
 .register-container {
   min-height: 100vh;
   display: flex;
@@ -455,7 +491,7 @@ const handleRegister = async () => {
   position: absolute;
   right: 1rem;
   font-size: 1.2rem;
-  pointer-events: none;
+  pointer-events: none; /* Make sure icons don't block input clicks unless they are buttons */
 }
 
 .password-toggle {
@@ -468,6 +504,7 @@ const handleRegister = async () => {
   padding: 0.25rem;
   border-radius: 4px;
   transition: background-color 0.2s ease;
+  pointer-events: all; /* Make password toggle clickable */
 }
 
 .password-toggle:hover {
@@ -754,7 +791,8 @@ const handleRegister = async () => {
 
 @keyframes spin {
   0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  100% { transform: rotate(360deg);
+  }
 }
 
 @keyframes float {

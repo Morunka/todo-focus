@@ -1,7 +1,6 @@
 <template>
   <div id="app">
-    <title>{{ pageTitle }}</title>
-    <nav class="navbar">
+    <title>ToDo список «Фокус»</title> <nav class="navbar">
       <div class="nav-container">
         <div class="nav-brand">
           <h2 class="brand-title">ToDo список «Фокус»</h2>
@@ -41,7 +40,7 @@
     <main class="main-content">
       <router-view v-slot="{ Component }">
         <transition name="page" mode="out-in">
-          <component :is="Component" />
+          <component :is="Component" :user="user" ref="mainPageRef" @show-reauth-modal="openReauthModal" />
         </transition>
       </router-view>
     </main>
@@ -49,162 +48,120 @@
     <FooterElement />
 
     <ConfirmationModal
-      :isVisible="showDeleteConfirmationModal"
-      title="Удаление аккаунта"
-      message="Вы уверены, что хотите безвозвратно удалить свой аккаунт и все связанные с ним задачи? Это действие необратимо."
-      confirmButtonText="Удалить"
-      cancelButtonText="Отмена"
-      @confirm="handleDeleteAccount"
-      @cancel="closeDeleteConfirmation"
-    />
-
-    <ConfirmationModal
       :isVisible="showReauthModal"
       title="Требуется повторная аутентификация"
-      message="Для удаления аккаунта необходимо недавнее подтверждение. Пожалуйста, выйдите из системы и войдите снова, затем попробуйте удалить аккаунт."
+      message="Для выполнения этого действия необходимо недавнее подтверждение вашей учетной записи. Пожалуйста, выйдите из системы и войдите снова, затем повторите попытку."
       confirmButtonText="Понятно"
-      :cancelButtonText="Отмена" @confirm="closeReauthModalAndLogout"
+      @confirm="closeReauthModalAndLogout"
       @cancel="closeReauthModal" />
   </div>
 </template>
 
 <script>
-import { auth, signOut, onAuthStateChanged, deleteUser } from './firebase';
-import { db } from './firebase';
-import { collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
-
+import { auth, signOut, onAuthStateChanged } from './firebase'; // Import only what's needed
 import FooterElement from './components/FooterElement.vue';
 import ConfirmationModal from './components/ConfirmationModal.vue';
+import { ref, onMounted, onUnmounted } from 'vue'; // Import Composition API functions
+import { useRouter, useRoute } from 'vue-router'; // Import useRouter and useRoute
 
 export default {
   components: {
     FooterElement,
     ConfirmationModal
   },
-  data() {
-    return {
-      user: null,
-      dropdownOpen: false,
-      showDeleteConfirmationModal: false,
-      showReauthModal: false // NEW: To control visibility of re-authentication modal
-    };
-  },
-  created() {
+  setup() { // Use setup for Composition API
+    const mainPageRef = ref(null); // Ref for the MainPage component instance
+    const user = ref(null); // Central user state
+    const dropdownOpen = ref(false);
+    const showReauthModal = ref(false);
+
+    const router = useRouter(); // Initialize router
+    const route = useRoute();   // Initialize route
+
+    // Listen for Firebase Auth state changes
     onAuthStateChanged(auth, (currentUser) => {
-      this.user = currentUser;
+      user.value = currentUser;
     });
-  },
-  methods: {
-    async handleLogout() {
+
+    // Handle user logout
+    const handleLogout = async () => {
       try {
         await signOut(auth);
-        this.dropdownOpen = false;
+        dropdownOpen.value = false;
         console.log("User successfully logged out. Redirecting to /login.");
-        if (this.$route.path !== '/login') {
-          this.$router.replace('/login');
+        if (route.path !== '/login') { // Use useRoute() from vue-router
+          router.replace('/login'); // Use useRouter() from vue-router
         }
       } catch (error) {
         console.error("Error logging out:", error);
         alert(`Ошибка при выходе: ${error.message}`);
       }
-    },
-    toggleDropdown() {
-      this.dropdownOpen = !this.dropdownOpen;
-    },
-    handleClickOutside(event) {
-      const userInfoDropdown = this.$el.querySelector('.user-info-dropdown');
-      if (this.dropdownOpen && userInfoDropdown && !userInfoDropdown.contains(event.target)) {
-        this.dropdownOpen = false;
+    };
+
+    // Toggle the user dropdown menu
+    const toggleDropdown = () => {
+      dropdownOpen.value = !dropdownOpen.value;
+    };
+
+    // Close dropdown if click outside
+    const handleClickOutside = (event) => {
+      const userInfoDropdown = document.querySelector('.user-info-dropdown');
+      if (dropdownOpen.value && userInfoDropdown && !userInfoDropdown.contains(event.target)) {
+        dropdownOpen.value = false;
       }
-    },
+    };
 
-    /**
-     * Opens the custom confirmation modal for account deletion.
-     */
-    openDeleteConfirmation() {
-      this.dropdownOpen = false; // Close the user dropdown
-      this.showDeleteConfirmationModal = true; // Show the custom modal
-    },
-
-    /**
-     * Closes the custom confirmation modal.
-     */
-    closeDeleteConfirmation() {
-      this.showDeleteConfirmationModal = false;
-    },
-
-    // NEW: Methods for the re-authentication modal
-    openReauthModal() {
-      this.showReauthModal = true;
-    },
-    closeReauthModal() {
-      this.showReauthModal = false;
-    },
-    closeReauthModalAndLogout() {
-      this.closeReauthModal();
-      this.handleLogout(); // Automatically log out after they acknowledge the message
-    },
-
-    /**
-     * Handles the actual account deletion process, triggered by modal confirmation.
-     */
-    async handleDeleteAccount() {
-      this.closeDeleteConfirmation(); // Close the initial deletion modal
-
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        console.error("No user is logged in to delete account.");
-        this.$router.replace('/login');
-        return;
+    // Trigger account deletion process in MainPage.vue
+    const openDeleteConfirmation = () => {
+      dropdownOpen.value = false; // Close the user dropdown
+      // Call the method on the MainPage component instance via its ref
+      if (mainPageRef.value && typeof mainPageRef.value.promptDeleteAccount === 'function') {
+        mainPageRef.value.promptDeleteAccount();
+      } else {
+        console.warn("MainPage component or promptDeleteAccount method not found via ref.");
+        alert("Ошибка: Функция удаления аккаунта недоступна. Пожалуйста, попробуйте позже.");
       }
+    };
 
-      try {
-        console.log(`Attempting to delete tasks for user: ${currentUser.uid}`);
-        const tasksRef = collection(db, 'tasks');
-        const userTasksQuery = query(tasksRef, where('userId', '==', currentUser.uid));
-        const querySnapshot = await getDocs(userTasksQuery);
+    // Methods for the re-authentication modal (triggered by MainPage.vue if needed)
+    const openReauthModal = () => {
+      showReauthModal.value = true;
+    };
+    const closeReauthModal = () => {
+      showReauthModal.value = false;
+    };
+    const closeReauthModalAndLogout = () => {
+      closeReauthModal();
+      handleLogout(); // Automatically log out after they acknowledge the message
+    };
 
-        const deletePromises = [];
-        querySnapshot.forEach((doc) => {
-          deletePromises.push(deleteDoc(doc.ref));
-        });
+    // Lifecycle hooks for global click listener
+    onMounted(() => {
+      document.addEventListener('click', handleClickOutside);
+    });
+    onUnmounted(() => {
+      document.removeEventListener('click', handleClickOutside);
+    });
 
-        await Promise.all(deletePromises);
-        console.log(`Successfully deleted ${querySnapshot.size} tasks for user.`);
-
-        await deleteUser(currentUser);
-
-        console.log("User account successfully deleted. Redirecting to /register.");
-        this.$router.replace('/register');
-
-      } catch (error) {
-        console.error("Error deleting account:", error);
-        if (error.code === 'auth/requires-recent-login') {
-          // Changed: Use the custom modal instead of alert
-          this.openReauthModal();
-        } else if (error.code === 'auth/user-not-found') {
-          // This case might also benefit from a custom modal in a real app,
-          // but for now, we'll keep the alert for simplicity
-          alert("Аккаунт не найден. Возможно, он уже был удален.");
-          this.$router.replace('/login');
-        } else {
-          alert(`Ошибка при удалении аккаунта: ${error.message}`);
-        }
-      }
-    }
-  },
-  mounted() {
-    document.addEventListener('click', this.handleClickOutside);
-  },
-  beforeUnmount() {
-    document.removeEventListener('click', this.handleClickOutside);
+    // Return reactive state and methods to the template
+    return {
+      user,
+      dropdownOpen,
+      showReauthModal,
+      mainPageRef, // Make the ref accessible in the template
+      handleLogout,
+      toggleDropdown,
+      openDeleteConfirmation,
+      openReauthModal,
+      closeReauthModal,
+      closeReauthModalAndLogout
+    };
   }
 };
 </script>
 
 <style>
-/* All your existing styles from the previous answer remain unchanged. */
+/* All your existing styles remain unchanged. */
 /* I'm including the full style block here as requested. */
 
 #app {
@@ -298,10 +255,6 @@ body {
   background: rgba(255, 255, 255, 0.1);
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-.nav-link:hover::before {
-  left: 100%;
 }
 
 .nav-link.router-link-exact-active {
